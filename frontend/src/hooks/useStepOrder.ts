@@ -1,31 +1,52 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useStepStore } from '../stores/stepStore'
-import type { DisassemblyStep } from '../types/step'
+import { STEP_ACTIONS, type DisassemblyStep, type StepAction } from '../types/step'
 
-interface StepOrderResult {
+export interface StepTrack {
+  action: StepAction
+  label: string
   steps: DisassemblyStep[]
   totalDurationSec: number
-  currentStepIndex: number
-  move: (from: number, to: number) => Promise<void>
-  setCurrentStep: (index: number) => void
+}
+
+interface StepOrderResult {
+  tracks: StepTrack[]
+  steps: DisassemblyStep[]
+  currentStep: DisassemblyStep | null
+  totalDurationSec: number
+  move: (action: StepAction, from: number, to: number) => Promise<void>
+  selectStep: (id: string) => void
 }
 
 export function useStepOrder(jointTypeId: string): StepOrderResult {
   const allSteps = useStepStore((state) => state.steps)
-  const currentStepIndex = useStepStore((state) => state.currentStepIndex)
+  const currentStepId = useStepStore((state) => state.currentStepId)
   const loadSteps = useStepStore((state) => state.loadSteps)
-  const setCurrentStep = useStepStore((state) => state.setCurrentStep)
+  const setCurrentStepId = useStepStore((state) => state.setCurrentStepId)
 
   useEffect(() => {
     if (!jointTypeId) return
     void loadSteps(jointTypeId)
   }, [jointTypeId, loadSteps])
 
-  const steps = useMemo(
-    () => allSteps
-      .filter((step) => step.jointTypeId === jointTypeId)
-      .sort((a, b) => a.seq - b.seq),
+  const tracks = useMemo<StepTrack[]>(
+    () => STEP_ACTIONS.map((action) => {
+      const steps = allSteps
+        .filter((step) => step.jointTypeId === jointTypeId && step.action === action)
+        .sort((a, b) => a.seq - b.seq)
+      return {
+        action,
+        label: action === '拆卸' ? '拆卸轨道' : '装配轨道',
+        steps,
+        totalDurationSec: steps.reduce((total, step) => total + step.holdSec, 0),
+      }
+    }),
     [allSteps, jointTypeId],
+  )
+
+  const steps = useMemo(
+    () => tracks.flatMap((track) => track.steps),
+    [tracks],
   )
 
   const totalDurationSec = useMemo(
@@ -33,15 +54,25 @@ export function useStepOrder(jointTypeId: string): StepOrderResult {
     [steps],
   )
 
-  const move = useCallback(async (from: number, to: number) => {
-    await useStepStore.getState().moveStep(from, to)
-  }, [])
+  const currentStep = useMemo(
+    () => steps.find((step) => step.id === currentStepId) ?? steps[0] ?? null,
+    [steps, currentStepId],
+  )
+
+  const move = useCallback(async (action: StepAction, from: number, to: number) => {
+    await useStepStore.getState().moveStep(jointTypeId, action, from, to)
+  }, [jointTypeId])
+
+  const selectStep = useCallback((id: string) => {
+    setCurrentStepId(id)
+  }, [setCurrentStepId])
 
   return {
+    tracks,
     steps,
+    currentStep,
     totalDurationSec,
-    currentStepIndex: Math.min(currentStepIndex, Math.max(0, steps.length - 1)),
     move,
-    setCurrentStep,
+    selectStep,
   }
 }

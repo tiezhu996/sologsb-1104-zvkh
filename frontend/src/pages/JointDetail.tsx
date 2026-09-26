@@ -18,7 +18,7 @@ export default function JointDetail() {
   const loading = useJointStore((state) => state.loading)
   const loadAll = useJointStore((state) => state.loadAll)
   const updateMemberDimensions = useJointStore((state) => state.updateMemberDimensions)
-  const { steps, totalDurationSec, currentStepIndex, move, setCurrentStep } = useStepOrder(id)
+  const { tracks, currentStep, move, selectStep } = useStepOrder(id)
 
   useEffect(() => {
     void loadAll()
@@ -62,10 +62,14 @@ export default function JointDetail() {
             <h1 className="mt-5 text-3xl font-bold tracking-tight text-wood-900 sm:text-4xl">{joint.name} · 结构详情</h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-stone-600">{joint.strengthNote}</p>
           </div>
-          <div className="relative grid grid-cols-3 gap-3">
+          <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="构件" value={currentMembers.length} unit="件" />
-            <Stat label="步序" value={steps.length} unit="步" />
-            <Stat label="演示" value={totalDurationSec} unit="秒" />
+            {tracks.map((track) => (
+              <div key={track.action} className="contents">
+                <Stat label={`${track.action}步数`} value={track.steps.length} unit="步" />
+                <Stat label={`${track.action}停留`} value={track.totalDurationSec} unit="秒" />
+              </div>
+            ))}
           </div>
         </div>
         <div className="flex flex-wrap gap-3 border-t border-wood-100 bg-wood-50/60 px-6 py-4 sm:px-8">
@@ -194,17 +198,40 @@ export default function JointDetail() {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-wood-900">拆装步序</h2>
-              <p className="mt-1 text-sm text-stone-500">点击步骤查看风险提醒，也可直接拖动调整顺序。</p>
-            </div>
-            <span className="text-xs text-wood-700">共 {totalDurationSec} 秒</span>
+          <div>
+            <h2 className="text-xl font-semibold text-wood-900">拆装步序</h2>
+            <p className="mt-1 text-sm text-stone-500">拆卸与装配各自从 1 号排起；点击步骤查看风险提醒，拖动只在同一条轨道内调整。</p>
           </div>
-          {steps.length === 0 ? (
+          {tracks.every((track) => track.steps.length === 0) ? (
             <BlankPanel title="尚无拆装步骤" description="进入步序编排页补充拆装动作。" />
           ) : (
-            <StepRail steps={steps} currentIndex={currentStepIndex} onSelect={setCurrentStep} onMove={(from, to) => void move(from, to)} />
+            <div className="space-y-5">
+              {tracks.map((track) => (
+                <div key={track.action} className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-wood-800">
+                      {track.label}
+                      <span className="ml-2 text-xs font-normal text-stone-500">{track.steps.length} 步</span>
+                    </h3>
+                    <span className="text-xs text-wood-700">停留合计 {track.totalDurationSec} 秒</span>
+                  </div>
+                  {track.steps.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-stone-200 px-4 py-3 text-xs text-stone-400">
+                      该轨道暂无步骤
+                    </p>
+                  ) : (
+                    <StepRail
+                      action={track.action}
+                      label={track.label}
+                      steps={track.steps}
+                      currentStepId={currentStep?.id ?? null}
+                      onSelect={selectStep}
+                      onMove={(trackAction, from, to) => void move(trackAction, from, to)}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </section>

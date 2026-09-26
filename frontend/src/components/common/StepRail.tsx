@@ -1,29 +1,44 @@
 import type { DragEvent } from 'react'
-import type { DisassemblyStep } from '../../types/step'
+import type { DisassemblyStep, StepAction } from '../../types/step'
 
 interface StepRailProps {
+  action: StepAction
+  label: string
   steps: DisassemblyStep[]
-  currentIndex: number
-  onSelect: (index: number) => void
-  onMove: (from: number, to: number) => void
+  currentStepId: string | null
+  onSelect: (id: string) => void
+  onMove: (action: StepAction, from: number, to: number) => void
 }
 
-export function StepRail({ steps, currentIndex, onSelect, onMove }: StepRailProps) {
+interface DragPayload {
+  action: StepAction
+  index: number
+}
+
+export function StepRail({ action, label, steps, currentStepId, onSelect, onMove }: StepRailProps) {
   const handleDrop = (event: DragEvent<HTMLElement>, to: number) => {
     event.preventDefault()
-    const from = Number(event.dataTransfer.getData('text/plain'))
-    if (Number.isInteger(from)) onMove(from, to)
+    try {
+      const payload = JSON.parse(event.dataTransfer.getData('text/plain')) as Partial<DragPayload>
+      // 拖动只在同一条轨道里生效，来自另一条轨道的放置直接忽略
+      if (payload.action !== action) return
+      if (!Number.isInteger(payload.index)) return
+      onMove(action, payload.index as number, to)
+    } catch {
+      // 非本组件产生的拖拽数据一律忽略
+    }
   }
 
   return (
-    <div className="space-y-3" aria-label="拆装步骤轨道">
+    <div className="space-y-3" aria-label={label}>
       {steps.map((step, index) => (
         <article
           key={step.id}
           draggable
           onDragStart={(event) => {
             event.dataTransfer.effectAllowed = 'move'
-            event.dataTransfer.setData('text/plain', String(index))
+            const payload: DragPayload = { action, index }
+            event.dataTransfer.setData('text/plain', JSON.stringify(payload))
           }}
           onDragOver={(event) => {
             event.preventDefault()
@@ -31,19 +46,19 @@ export function StepRail({ steps, currentIndex, onSelect, onMove }: StepRailProp
           }}
           onDrop={(event) => handleDrop(event, index)}
           className={`group rounded-xl border p-3 transition ${
-            currentIndex === index
+            currentStepId === step.id
               ? 'border-wood-500 bg-wood-50 shadow-sm'
               : 'border-stone-200 bg-white hover:border-wood-100'
           }`}
-          data-testid="step-row"
+          data-testid={`step-row-${action}`}
         >
           <button
             type="button"
-            onClick={() => onSelect(index)}
+            onClick={() => onSelect(step.id)}
             className="flex w-full items-start gap-3 text-left"
           >
             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
-              currentIndex === index ? 'bg-wood-700 text-white' : 'bg-stone-100 text-stone-600'
+              currentStepId === step.id ? 'bg-wood-700 text-white' : 'bg-stone-100 text-stone-600'
             }`}>
               {step.seq}
             </span>
@@ -58,7 +73,7 @@ export function StepRail({ steps, currentIndex, onSelect, onMove }: StepRailProp
           </button>
           <div className="mt-2 flex justify-end">
             <span className="cursor-grab select-none rounded px-2 py-1 text-[11px] text-stone-400 group-active:cursor-grabbing">
-              拖动调序
+              拖动调序（仅{label}）
             </span>
           </div>
         </article>
