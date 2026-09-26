@@ -1,46 +1,64 @@
 import { create } from 'zustand'
-import type { DisassemblyStep } from '../types/step'
+import type { DisassemblyStep, StepAction } from '../types/step'
 import { db } from '../utils/db'
+
+export const ACTION_ORDER: StepAction[] = ['拆卸', '装配']
+
+function sortSteps(steps: DisassemblyStep[]): DisassemblyStep[] {
+  return [...steps].sort((a, b) => {
+    const actionDelta = ACTION_ORDER.indexOf(a.action) - ACTION_ORDER.indexOf(b.action)
+    return actionDelta !== 0 ? actionDelta : a.seq - b.seq
+  })
+}
 
 interface StepState {
   steps: DisassemblyStep[]
-  currentStepIndex: number
+  currentStepId: string | null
   loading: boolean
   loadSteps: (jointTypeId: string) => Promise<void>
-  moveStep: (from: number, to: number) => Promise<void>
-  setCurrentStep: (index: number) => void
+  moveStep: (action: StepAction, from: number, to: number) => Promise<void>
+  setCurrentStep: (stepId: string) => void
 }
 
 export const useStepStore = create<StepState>((set, get) => ({
   steps: [],
-  currentStepIndex: 0,
+  currentStepId: null,
   loading: false,
 
   loadSteps: async (jointTypeId) => {
     set({ loading: true })
     try {
-      const steps = await db.steps.where('jointTypeId').equals(jointTypeId).sortBy('seq')
+      const steps = sortSteps(await db.steps.where('jointTypeId').equals(jointTypeId).toArray())
       set((state) => ({
         steps,
-        currentStepIndex: Math.min(state.currentStepIndex, Math.max(0, steps.length - 1)),
+        currentStepId: steps.some((step) => step.id === state.currentStepId)
+          ? state.currentStepId
+          : steps[0]?.id ?? null,
       }))
     } finally {
       set({ loading: false })
     }
   },
 
-  moveStep: async (from, to) => {
-    const ordered = [...get().steps].sort((a, b) => a.seq - b.seq)
-    if (from < 0 || to < 0 || from >= ordered.length || to >= ordered.length || from === to) return
-    const [moved] = ordered.splice(from, 1)
+  moveStep: async (action, from, to) => {
+    const all = get().steps
+    const track = all.filter((step) => step.action === action).sort((a, b) => a.seq - b.seq)
+    if (from < 0 || to < 0 || from >= track.length || to >= track.length || from === to) return
+    const [moved] = track.splice(from, 1)
     if (!moved) return
-    ordered.splice(to, 0, moved)
-    const resequenced = ordered.map((step, index) => ({ ...step, seq: index + 1 }))
-    set({ steps: resequenced, currentStepIndex: to })
+    track.splice(to, 0, moved)
+    // 只重排本条轨道的编号，另一条轨道的 seq 原样保留
+    const resequenced = track.map((step, index) => ({ ...step, seq: index + 1 }))
+    const resequencedIds = new Set(resequenced.map((step) => step.id))
+    set({
+      steps: sortSteps([
+        ...all.filter((step) => !resequencedIds.has(step.id)),
+        ...resequenced,
+      ]),
+      currentStepId: moved.id,
+    })
     await db.steps.bulkPut(resequenced)
   },
 
-  setCurrentStep: (index) => set({
-    currentStepIndex: Math.max(0, index),
-  }),
+  setCurrentStep: (stepId) => set({ currentStepId: stepId }),
 }))

@@ -1,18 +1,24 @@
 import { useCallback, useEffect, useMemo } from 'react'
-import { useStepStore } from '../stores/stepStore'
-import type { DisassemblyStep } from '../types/step'
+import { ACTION_ORDER, useStepStore } from '../stores/stepStore'
+import type { DisassemblyStep, StepAction } from '../types/step'
 
-interface StepOrderResult {
+export interface StepTrack {
+  action: StepAction
   steps: DisassemblyStep[]
   totalDurationSec: number
-  currentStepIndex: number
-  move: (from: number, to: number) => Promise<void>
-  setCurrentStep: (index: number) => void
+}
+
+interface StepOrderResult {
+  tracks: StepTrack[]
+  steps: DisassemblyStep[]
+  currentStep: DisassemblyStep | undefined
+  move: (action: StepAction, from: number, to: number) => Promise<void>
+  setCurrentStep: (stepId: string) => void
 }
 
 export function useStepOrder(jointTypeId: string): StepOrderResult {
   const allSteps = useStepStore((state) => state.steps)
-  const currentStepIndex = useStepStore((state) => state.currentStepIndex)
+  const currentStepId = useStepStore((state) => state.currentStepId)
   const loadSteps = useStepStore((state) => state.loadSteps)
   const setCurrentStep = useStepStore((state) => state.setCurrentStep)
 
@@ -24,23 +30,38 @@ export function useStepOrder(jointTypeId: string): StepOrderResult {
   const steps = useMemo(
     () => allSteps
       .filter((step) => step.jointTypeId === jointTypeId)
-      .sort((a, b) => a.seq - b.seq),
+      .sort((a, b) => {
+        const actionDelta = ACTION_ORDER.indexOf(a.action) - ACTION_ORDER.indexOf(b.action)
+        return actionDelta !== 0 ? actionDelta : a.seq - b.seq
+      }),
     [allSteps, jointTypeId],
   )
 
-  const totalDurationSec = useMemo(
-    () => steps.reduce((total, step) => total + step.holdSec, 0),
+  const tracks = useMemo(
+    () => ACTION_ORDER.map((action) => {
+      const trackSteps = steps.filter((step) => step.action === action)
+      return {
+        action,
+        steps: trackSteps,
+        totalDurationSec: trackSteps.reduce((total, step) => total + step.holdSec, 0),
+      }
+    }),
     [steps],
   )
 
-  const move = useCallback(async (from: number, to: number) => {
-    await useStepStore.getState().moveStep(from, to)
+  const currentStep = useMemo(
+    () => steps.find((step) => step.id === currentStepId) ?? steps[0],
+    [steps, currentStepId],
+  )
+
+  const move = useCallback(async (action: StepAction, from: number, to: number) => {
+    await useStepStore.getState().moveStep(action, from, to)
   }, [])
 
   return {
+    tracks,
     steps,
-    totalDurationSec,
-    currentStepIndex: Math.min(currentStepIndex, Math.max(0, steps.length - 1)),
+    currentStep,
     move,
     setCurrentStep,
   }
